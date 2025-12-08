@@ -13,6 +13,9 @@
 #include <zephyr/bluetooth/iso.h>
 #include <zephyr/sys/byteorder.h>
 
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/drivers/uart.h>
+
 #define TIMEOUT_SYNC_CREATE K_SECONDS(10)
 #define NAME_LEN            30
 
@@ -115,7 +118,8 @@ static void scan_recv(const struct bt_le_scan_recv_info *info,
 	       phy2str(info->primary_phy), phy2str(info->secondary_phy),
 	       info->interval, BT_CONN_INTERVAL_TO_US(info->interval), info->sid);
 
-	if (!per_adv_found && info->interval) {
+		if (!per_adv_found && info->interval) {
+			printk("FOUND ALICE! Stopping scan.\n");
 		per_adv_found = true;
 
 		per_sid = info->sid;
@@ -137,10 +141,11 @@ static void sync_cb(struct bt_le_per_adv_sync *sync,
 
 	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
 
-	printk("PER_ADV_SYNC[%u]: [DEVICE]: %s synced, "
-	       "Interval 0x%04x (%u ms), PHY %s\n",
-	       bt_le_per_adv_sync_get_index(sync), le_addr,
-	       info->interval, info->interval * 5 / 4, phy2str(info->phy));
+	printk(".");
+	//printk("PER_ADV_SYNC[%u]: [DEVICE]: %s synced, "
+	//       "Interval 0x%04x (%u ms), PHY %s\n",
+	//       bt_le_per_adv_sync_get_index(sync), le_addr,
+	//       info->interval, info->interval * 5 / 4, phy2str(info->phy));
 
 	k_sem_give(&sem_per_sync);
 }
@@ -169,10 +174,11 @@ static void recv_cb(struct bt_le_per_adv_sync *sync,
 	bt_addr_le_to_str(info->addr, le_addr, sizeof(le_addr));
 	bin2hex(buf->data, buf->len, data_str, sizeof(data_str));
 
-	printk("PER_ADV_SYNC[%u]: [DEVICE]: %s, tx_power %i, "
-	       "RSSI %i, CTE %u, data length %u, data: %s\n",
-	       bt_le_per_adv_sync_get_index(sync), le_addr, info->tx_power,
-	       info->rssi, info->cte_type, buf->len, data_str);
+	printk(",");
+	//printk("PER_ADV_SYNC[%u]: [DEVICE]: %s, tx_power %i, "
+	//       "RSSI %i, CTE %u, data length %u, data: %s\n",
+	//      bt_le_per_adv_sync_get_index(sync), le_addr, info->tx_power,
+	//       info->rssi, info->cte_type, buf->len, data_str);
 }
 
 static void biginfo_cb(struct bt_le_per_adv_sync *sync,
@@ -182,7 +188,8 @@ static void biginfo_cb(struct bt_le_per_adv_sync *sync,
 
 	bt_addr_le_to_str(biginfo->addr, le_addr, sizeof(le_addr));
 
-	printk("BIG INFO[%u]: [DEVICE]: %s, sid 0x%02x, "
+	printk("'");
+	/*printk("BIG INFO[%u]: [DEVICE]: %s, sid 0x%02x, "
 	       "num_bis %u, nse %u, interval 0x%04x (%u ms), "
 	       "bn %u, pto %u, irc %u, max_pdu %u, "
 	       "sdu_interval %u us, max_sdu %u, phy %s, "
@@ -195,7 +202,7 @@ static void biginfo_cb(struct bt_le_per_adv_sync *sync,
 	       biginfo->rep_count, biginfo->max_pdu, biginfo->sdu_interval,
 	       biginfo->max_sdu, phy2str(biginfo->phy),
 	       biginfo->framing ? "with" : "without",
-	       biginfo->encryption ? "" : "not ");
+	       biginfo->encryption ? "" : "not ");*/
 
 
 	k_sem_give(&sem_per_big_info);
@@ -223,10 +230,19 @@ static void iso_recv(struct bt_iso_chan *chan, const struct bt_iso_recv_info *in
 	}
 
 	if ((iso_recv_count % CONFIG_ISO_PRINT_INTERVAL) == 0) {
-		str_len = bin2hex(buf->data, buf->len, data_str, sizeof(data_str));
-		printk("Incoming data channel %p flags 0x%x seq_num %u ts %u len %u: "
-		       "%s (counter value %u)\n", chan, info->flags, info->seq_num,
-		       info->ts, buf->len, data_str, count);
+		if (count == 666) {
+			printk("\n\n    PAYLOAD INJECTED!!! (666)\n\n");
+//		str_len = bin2hex(buf->data, buf->len, data_str, sizeof(data_str));
+//		printk("Incoming data channel %p flags 0x%x seq_num %u ts %u len %u: "
+//		       "%s (counter value %u)\n", chan, info->flags, info->seq_num,
+//		       info->ts, buf->len, data_str, count);
+		}
+		else if (count == 0) {
+			printk("#");
+		}
+		else { 
+			printk(",%u", count); \
+		}
 	}
 
 	iso_recv_count++;
@@ -305,6 +321,21 @@ static void reset_semaphores(void)
 
 int main(void)
 {
+	// Enable USB
+    if (usb_enable(NULL)) {
+        return 0;
+    }
+    const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+    uint32_t dtr = 0;
+
+    while (!dtr) {
+        uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
+        k_sleep(K_MSEC(100)); // Check every 100ms
+    }
+
+    // Give it 1 second to settle
+    k_sleep(K_SECONDS(1));
+
 	struct bt_le_per_adv_sync_param sync_create_param;
 	struct bt_le_per_adv_sync *sync;
 	struct bt_iso_big *big;
@@ -403,7 +434,8 @@ int main(void)
 		printk("success.\n");
 
 		printk("Waiting for periodic sync...\n");
-		err = k_sem_take(&sem_per_sync, K_USEC(sem_timeout_us));
+		//err = k_sem_take(&sem_per_sync, K_USEC(sem_timeout_us));
+		err = k_sem_take(&sem_per_sync, K_SECONDS(2)); // extended timeout for testing
 		if (err) {
 			printk("failed (err %d)\n", err);
 
