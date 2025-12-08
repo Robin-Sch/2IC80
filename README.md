@@ -1,16 +1,36 @@
+# Introduction
+
+During our initial research we quickly figured out that we wanted to do something related to bluetooth. Bluetooth audio is extremely commonly used nowadays (headphones, speakers, cars), and we want to see if modern, encrypted devices are vulnerable to Man-in-theMiddle (MitM) attacks. In particular, we want to intercept the connection between a phone and headphones to eavesdrop on the audio or inject our own.
+
+For this, we found multiple papers that described different attack scenarios. In particular, 2 attacks stood out, Stealtooth and BISON, which will be described below.
+
+## Stealtooth
+
+Paper that introduces and explains Stealtooth: https://arxiv.org/pdf/2507.00847
+
+
+MitM attack on well-known bluetooth earbuds/headphones, such as the Redmi Buds 6 Pro and Sony WF-1000XM5
+
+## BISON
+
+Paper that introduces and explains BISON: https://www.carloalbertoboano.com/documents/gasteiger23bison.pdf
+
+Works using 3 bluetooth development boards, 2 of them being Alice and Bob doing some exchange, and the last one being Eve/the attacker device.
+
+Demo Image:
 ![Demo Setup](assets/demo1.jpeg)
 
-## Setup steps 
+### Setup steps
 
 Assumed hardware: 3x ProMicro nRF52840 (alice, bob, mallory)
 
 Below instructions are tested on Ubuntu 24.04 with Python 3.12
 
-1. Install required packages: 
+1. Install required packages:
     ```bash
     sudo apt install --no-install-recommends git cmake ninja-build gperf   ccache dfu-util device-tree-compiler wget   python3-dev python3-pip python3-setuptools python3-tk python3-wheel xz-utils file make gcc gcc-multilib g++-multilib libsdl2-dev libmagic1
     ```
-2. Downalod and install JLink: https://www.segger.com/downloads/jlink/JLink_Linux_x86_64.deb
+2. Download and install JLink: https://www.segger.com/downloads/jlink/JLink_Linux_x86_64.deb
 3. Initialize Zephyr workspace:
     ```bash
     mkdir ~/zephyr
@@ -22,7 +42,7 @@ Below instructions are tested on Ubuntu 24.04 with Python 3.12
     ```
 4. Create python virtual environment, install `west` and required python packages:
     ```bash
-    python3.12 -m venv ~/zephyr/venv 
+    python3.12 -m venv ~/zephyr/venv
     source ~/zephyr/venv/bin/activate
     pip install -U west
     pip install -r ~/zephyrproject/scripts/requirements.txt
@@ -34,7 +54,7 @@ Below instructions are tested on Ubuntu 24.04 with Python 3.12
     fdisk -l # check which /dev/sdX is the ProMicro
     mount /dev/sdX /mnt
     cp build/zephyr/zephyr.uf2 /mnt && sync # Device will reboot automatically
-    
+
     cd ~/zephyr/2IC80/samples/bluetooth/iso_receive # Bob
     # repat the steps for Bob
     ```
