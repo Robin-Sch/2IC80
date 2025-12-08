@@ -600,10 +600,11 @@ void ull_sync_iso_setup(struct ll_sync_iso_set *sync_iso,
 	sync_iso_offset_us -= PDU_AC_US(pdu->len, sync_iso->sync->lll.phy,
 					ftr->phy_flags);
 	sync_iso_offset_us -= EVENT_TICKER_RES_MARGIN_US;
-	sync_iso_offset_us -= EVENT_JITTER_US;
-	sync_iso_offset_us -= ready_delay_us;
 
-	interval_us -= lll->window_widening_periodic_us;
+	// [Mallory Hack] Double the margin for jitter, remove interval
+	sync_iso_offset_us -= (EVENT_JITTER_US * 2);
+	sync_iso_offset_us -= ready_delay_us;
+	//interval_us -= lll->window_widening_periodic_us;
 
 	/* Calculate ISO Receiver BIG event timings */
 
@@ -811,7 +812,8 @@ void ull_sync_iso_done(struct node_rx_event_done *done)
 				force = 1U;
 			}
 		} else {
-			timeout_cleanup(sync_iso);
+			// [Mallory Hack] Disable timeout
+			//timeout_cleanup(sync_iso);
 
 			return;
 		}

