@@ -12,6 +12,9 @@
 #include <zephyr/bluetooth/iso.h>
 #include <zephyr/sys/byteorder.h>
 
+#include <zephyr/usb/usb_device.h>
+#include <zephyr/drivers/uart.h>
+
 #define BIG_SDU_INTERVAL_US      (10000)
 #define BUF_ALLOC_TIMEOUT_US     (BIG_SDU_INTERVAL_US * 2U) /* milliseconds */
 #define BIG_TERMINATE_TIMEOUT_US (60 * USEC_PER_SEC) /* microseconds */
@@ -100,11 +103,29 @@ static struct bt_iso_big_create_param big_create_param = {
 };
 
 static const struct bt_data ad[] = {
-	BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+	//BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+	BT_DATA(BT_DATA_NAME_COMPLETE, "AliceISO", 8),
 };
 
 int main(void)
 {
+    // Enable USB
+    if (usb_enable(NULL)) {
+        return 0;
+    }
+
+    const struct device *dev = DEVICE_DT_GET(DT_CHOSEN(zephyr_console));
+    uint32_t dtr = 0;
+
+    while (!dtr) {
+        uart_line_ctrl_get(dev, UART_LINE_CTRL_DTR, &dtr);
+        k_sleep(K_MSEC(100)); // Check every 100ms
+    }
+
+    // Give it 1 second to settle
+    k_sleep(K_SECONDS(1));
+
+
 	/* Some controllers work best while Extended Advertising interval to be a multiple
 	 * of the ISO Interval minus 10 ms (max. advertising random delay). This is
 	 * required to place the AUX_ADV_IND PDUs in a non-overlapping interval with the
@@ -218,7 +239,6 @@ int main(void)
 				net_buf_unref(buf);
 				return 0;
 			}
-
 		}
 
 		if ((iso_send_count % CONFIG_ISO_PRINT_INTERVAL) == 0) {
@@ -227,51 +247,5 @@ int main(void)
 
 		iso_send_count++;
 		seq_num++;
-
-		timeout_counter--;
-		if (!timeout_counter) {
-			timeout_counter = INITIAL_TIMEOUT_COUNTER;
-
-			printk("BIG Terminate...");
-			err = bt_iso_big_terminate(big);
-			if (err) {
-				printk("failed (err %d)\n", err);
-				return 0;
-			}
-			printk("done.\n");
-
-			for (uint8_t chan = 0U; chan < BIS_ISO_CHAN_COUNT;
-			     chan++) {
-				printk("Waiting for BIG terminate complete"
-				       " chan %u...\n", chan);
-				err = k_sem_take(&sem_big_term, K_FOREVER);
-				if (err) {
-					printk("failed (err %d)\n", err);
-					return 0;
-				}
-				printk("BIG terminate complete chan %u.\n",
-				       chan);
-			}
-
-			printk("Create BIG...");
-			err = bt_iso_big_create(adv, &big_create_param, &big);
-			if (err) {
-				printk("failed (err %d)\n", err);
-				return 0;
-			}
-			printk("done.\n");
-
-			for (uint8_t chan = 0U; chan < BIS_ISO_CHAN_COUNT;
-			     chan++) {
-				printk("Waiting for BIG complete chan %u...\n",
-				       chan);
-				err = k_sem_take(&sem_big_cmplt, K_FOREVER);
-				if (err) {
-					printk("failed (err %d)\n", err);
-					return 0;
-				}
-				printk("BIG create complete chan %u.\n", chan);
-			}
-		}
 	}
 }
