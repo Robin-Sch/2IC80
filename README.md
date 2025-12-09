@@ -4,12 +4,15 @@ During our initial research we quickly figured out that we wanted to do somethin
 
 For this, we found multiple papers that described different attack scenarios. In particular, 2 attacks stood out, Stealtooth and BISON, which will be described below.
 
+There are 2 branches, main and mallory. Changes in main are only for debugging and flashing to the devices in order to replicate a real scenario. In mallory the low-level Bluetooth driver code was changed so as to allow the attack.
+
 ## Stealtooth
 
 Paper that introduces and explains Stealtooth: https://arxiv.org/pdf/2507.00847
 
+MitM attack on well-known bluetooth earbuds/headphones, such as the Redmi Buds 6 Pro and Sony WF-1000XM5. The fundamental vulnerability being exploited here is in the automatic pairing functionality present in modern bluetooth devices. It is used to allow a more convenient user experience. The attack takes advantage of the behavior where audio devices, upon failing to reconnect with a previously paired source (phone, laptop, etc.), automatically transition into a pairing mode. This state can be triggerred by an attacker that blocks/jams the real signal, effectively forcing the bluetooth headphones to seek a new connection. In this vulnerable state, an attacker can impersonate the source device and initiate a pairing request.
 
-MitM attack on well-known bluetooth earbuds/headphones, such as the Redmi Buds 6 Pro and Sony WF-1000XM5
+Crucially, this results in "silent link key overwriting," where the headphones accept the attacker's new encryption key without requiring any manual user confirmation. Stealtooth combines this method of hijacking with the abuse of bluetooth “sleep mode” to achieve a full man-in-the-middle attack. The attacker is able to maintain connection while relaying traffic, enabling eavesdropping and injection of audio without the victim being aware of a compromised conneciton.
 
 ## BISON
 
@@ -17,8 +20,35 @@ Paper that introduces and explains BISON: https://www.carloalbertoboano.com/docu
 
 Works using 3 bluetooth development boards, 2 of them being Alice and Bob doing some exchange, and the last one being Eve/the attacker device.
 
+Bison specifically targets newer versions of the Bluetooth Low Energy (BLE) feature known as Broadcast Isochronous Streams (BIS). Updates in this feature enable audio broadcast from a single source to an unlimited amount of receivers. The metadata that is used to synchronize with the stream is transmitted in plaintex instead of being encrypted. This opens a vulnerability for an attacker to exploit. Further vulnerabilities are present in the encryption key exchange. Attackers can inject audio to play practical jokes at places like silent discos or cause bigger issues by targeting public information systems or hearing aids.
+
+By abusing these weaknesses and manipulating the BLE Channel Map Update procedure, BISON allows an attacker to hijack an ongoing broadcast session. The legitimate source is desynchronized by the attacker, who can take over the stream and impersonate the transmitter. This way, the attacker can modify the broadcast payload live or even inject any audio content. It is also important to note that the integrity and authenticity of the stream is broken here using standard off-the-shelf hardware.
+
+IMPLEMENTATION NOTES:
+The work we have done for our implementation of the attack is not simple a clone of BISON's code. That was roughly 3 years old and did not match the latest state of zephyr, so we worked on our implementation from scratch while taking inspiration from the BISON paper.
+
+1. USB Initialization for Debugging: The main.c file (samples\bluetooth\iso_receive\src\main.c) was updated to include initialization for the USB device and a polling loop to wait for the UART Data Terminal Ready (DTR) signal. This ensures that the application only proceeds once the serial terminal (Minicom) is connected and ready to receive output, which is necessary for reliable debugging and demonstration on the ProMicro nRF52840 boards.
+
+2. Mallory's Critical Driver Change: A successful BISON attack requires low-level control over the Bluetooth Link Layer (LLL). To enable the attack, major modifications were made in the Zephyr LLL driver file lll_sync_iso.c (in mallory branch). These changes introduce global variables (like packets_unil_attack_start and evil_counter_val = 666) and custom functions (isr_spoofed_iso_done, isr_spoofed_iso_ctrl_subevent_done) to:
+
+Inject a malicious control PDU (PDU_BIG_CTRL_TYPE_CHAN_MAP_IND) at a specific timing Instant.
+
+Immediately follow this control PDU with a spoofed data payload (the value 666) in subsequent subevents.
+
+This injection forces Bob (the target receiver) to accept Mallory's new, manipulated Channel Map, effectively hijacking Bob's stream and breaking synchronization with Alic
+
+3. Alice/Bob Debugging Changes (main.c): The main.c files for Alice (broadcaster) and Bob (receiver) contain necessary modifications for debugging and visualization on the embedded hardware. These changes include:
+
+USB Initialization and DTR Wait: The code waits until the UART Data Terminal Ready (DTR) signal is active (while (!dtr) { ... }), ensuring the serial console (Minicom) is ready before printing, which is crucial for reliable debugging on the ProMicro nRF52840.
+
+Payload Validation: The receiver code (iso_recv function in Bob/Mallory) contains logic to specifically detect and print the injected payload: if (count == 666) { printk("\n\n PAYLOAD INJECTED!!! (666)\n\n"); }. These debug changes are essential to visually confirm the attack's success in the demonstration.
+
+4. Demonstration Output: In a real audio stream, Alice would transmit consecutive audio packets. Our demo replaces this with a simple counter where Alice sends incrementing numbers. Mallory executes the BISON attack, takes over the stream, and injects the payload 666. The successful attack is verified when Bob's Minicom terminal, which was previously showing a stable stream of counter values from Alice, switches to printing the injected 666 packets.
+
 Demo Image:
 ![Demo Setup](assets/demo1.jpeg)
+
+The image above displays the three ProMicro nRF52840 development boards used in the BISON demo: Alice (the audio broadcaster/source), Bob (the legitimate receiver), and Mallory (the attacker/Eve). The setup aims to visually replicate a public broadcast scenario, where Mallory intercepts and injects "666" into the communication between Alice and Bob.
 
 ### Setup steps
 
