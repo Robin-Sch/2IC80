@@ -20,7 +20,7 @@ We have not started work on stealtooth as our efforts have been focused on BISON
 
 Paper that introduces and explains BISON: https://www.carloalbertoboano.com/documents/gasteiger23bison.pdf
 
-Works using 3 bluetooth development boards, 2 of them being Alice and Bob doing some exchange, and the last one being Eve/the attacker device.
+Works using 3 bluetooth development boards, 2 of them being Alice and Bob doing some exchange, and the last one being mallory/the attacker device.
 
 Bison specifically targets newer versions of the Bluetooth Low Energy (BLE) feature known as Broadcast Isochronous Streams (BIS). Updates in this feature enable audio broadcast from a single source to an unlimited amount of receivers. The metadata that is used to synchronize with the stream is transmitted in plaintex instead of being encrypted. This opens a vulnerability for an attacker to exploit. Further vulnerabilities are present in the encryption key exchange. Attackers can inject audio to play practical jokes at places like silent discos or cause bigger issues by targeting public information systems or hearing aids.
 
