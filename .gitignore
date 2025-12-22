@@ -123,3 +123,8 @@ ZephyrModuleFile.txt
 
 # Node dependecies
 node_modules
+
+macs.txt
+__pycache__
+config.mk
+venv

