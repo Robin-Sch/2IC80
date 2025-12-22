@@ -21,7 +21,7 @@ class BTSocket:
 
     def key_hijacking(self):
         try:
-            psm = 0x0000  # set psm as 0
+            psm = 0x0001  # set psm as 0
             addr = (self.bt_addr, psm)
             status = self.sock.connect_ex(addr)
             logger.status(f"Connection status code: {status}")

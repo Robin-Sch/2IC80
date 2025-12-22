@@ -10,7 +10,6 @@ from evdev import *
 from tools.utils.logs import logger
 
 class KbClient():
-    
     def __init__(self):
         self.state = [
             0xA1, # this is an input report
@@ -43,7 +42,7 @@ class KbClient():
         self.iface = dbus.Interface(self.btkservice, "org.trapedev.btkbservice")
         logger.status("Waiting for keyboard...")
         self.dev = self.get_keyboard_device()
-    
+
     def get_keyboard_device(self):
         context = pyudev.Context()
         devs = context.list_devices(subsystem="input")
@@ -51,10 +50,10 @@ class KbClient():
             if "ID_INPUT_KEYBOARD" in dev.properties and dev.device_node is not None:
                 logger.status("Found keyboard: " + dev.device_node)
                 return InputDevice(dev.device_node)
-        logger.error("Keyboard not found, waiting 3 seconds and retrying...")
+        logger.error("Please plug in a physical keyboard, waiting 3 seconds and retrying...")
         time.sleep(3)
         return self.get_keyboard_device()
-    
+
     def change_state(self, event):
         evdev_code = ecodes.KEY[event.code]
         modkey_element = keymap.modkey(evdev_code)
