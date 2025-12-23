@@ -67,7 +67,16 @@ make breaktooth
 
 This will continously check the connection status between A and B. Once Alice disconnects, which can be "forced" using for example `sudo btmgmt power off` (on Alice), the script will automatically try to connect to Bob. If we did the setup/device the other way around, so we are spoofing the buds, we can disconnect by simply closing the lid.
 
-To show that the connection works, we can run `bluetoothctl info <MAC_B>` on the pi and see that Connected is true. In addition, when trying to re-connect Alice with Bob we get `org.bluez.Error.Failed br-connection-key-missing`, which indicates we have overwritten the key successfully.
+To show that the connection works, we can run `bluetoothctl info <MAC_B>` on the pi and see that Connected is true. In addition, when trying to re-connect Alice with Bob we get `org.bluez.Error.Failed br-connection-key-missing`, which indicates we have overwritten the key successfully. Lastly, we can also play sound (from user `pi`) using the following steps:
+
+```
+# from pi user:
+sudo apt install -y pulseaudio pulseaudio-module-bluetooth
+pulseaudio --start
+pactl list cards short # gives bluez_card.MAC, if not disconnect and connect again with bluetoothctl
+paplay /usr/share/sounds/alsa/Front_Center.wav
+```
+
 
 # BISON
 

