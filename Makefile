@@ -15,6 +15,7 @@ install/deps:	## Setup dependency
 	@apt install -y bluez bluez-tools bluez-firmware
 	@apt install -y python3 python3-pip python3-dev
 	@apt install -y python3-dbus python3-evdev python3-bluez python3-gi
+	@apt install -y pulseaudio pulseaudio-module-bluetooth
 	@python3 -m venv venv --system-site-packages
 	@./venv/bin/pip3 install pyudev
 	@./venv/bin/pip3 install colorama
