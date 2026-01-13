@@ -8,11 +8,15 @@ There are 2 branches, main and mallory. Changes in main are only for debugging a
 
 # Stealtooth
 
+## Theory
+
 Paper that introduces and explains Stealtooth: https://arxiv.org/pdf/2507.00847. Stealtooth builds on top of [Breaktooth](https://eprint.iacr.org/2024/900.pdf), which source code can be downloaded on [breaktooth.github.io](https://breaktooth.github.io/).
 
 Breaktooth exploits a vulnerability in the power savings implementation. Using this exploit, the bluetooth device accept the attacker's link key without requiring any manual user confirmation. This key then which overwrites the real link key silently, allowing to take over the connection.
 
-Stealtooth then builds on top of Breaktooth to perform a MitM attack. After overwriting the link key on both A and B, the attack can pass through audio from A to B whilst at the same time eavesdropping or injecting audio, without the victim being aware of the compromised connection.
+TODO: further explanation how it works
+
+Stealtooth then builds on top of Breaktooth to perform a MitM attack. After overwriting the link key and connecting to both A and B (using Breaktooth), the attacker can pass through audio from A to B whilst at the same time eavesdropping or injecting audio, without the victim being aware of the compromised connection.
 
 ## Implementation
 
@@ -39,6 +43,8 @@ sudo bluetoothctl
 
 Once we have obtained the MAC addresses and names, we can start using the Breaktooth tool. We have slightly modified this tool as the original source code does not work (anymore). You can find the updated code in the `breaktooth` directory.
 
+TODO: explain changes made
+
 Switch to the root user using `sudo su` and install depenencies using:
 ```
 make install/deps
@@ -49,7 +55,7 @@ Next, we start our attack by preparing it with the correct MAC and device name
 ```
 go # if you get "command not found", exit and sudo su again (`$PATH` needs to be updated after installing the deps)
 source venv/bin/activate
-make setup/device MAC=<MAC_A> NAME="<NAME_A>" TARGET=<MAC_B> # spoof A and get a connection with B
+make setup/device MAC=<MAC_A> NAME="<NAME_A>" TARGET=<MAC_B> # spoof the phone/laptop (A) and get a connection with the buds (B)
 ```
 
 After that we need to make sure we are in NoInputNoOutput mode. This indicates that we have no capability for user input or output during the pairing/connection process. As a result, the device we are trying to hack will not ask for a pairing PIN.
@@ -74,8 +80,16 @@ To show that the connection works, we can run `bluetoothctl info <MAC_B>` on the
 sudo apt install -y pulseaudio pulseaudio-module-bluetooth
 pulseaudio --start
 pactl list cards short # gives bluez_card.MAC, if not disconnect and connect again with bluetoothctl
+pactl get-default-sink # should be bluez_sink...
+pactl set-sink-volume @DEFAULT_SINK@ 100%
 paplay /usr/share/sounds/alsa/Front_Center.wav
 ```
+
+### Stealtooth
+
+As mentioned before, Stealtooth will perform this Breaktooth attack above to hijack a connection to the phone/laptop (A) at the same time as hijacking the connection to the buds (B). Unfortunately we were not able to re-produce this attack, and hence, were not able to create a full MiTM attack, due to TODO. We were able to successfully hijack the connection to the buds and play audio, and even after disconnecting the pi the laptop/phone could no longer connect to the buds again because we over-write the link key.
+
+TODO: explain a bit more?
 
 
 # BISON

