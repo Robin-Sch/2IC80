@@ -6,7 +6,7 @@ For this, we found multiple papers that described different attack scenarios. In
 
 There are 2 branches, main and mallory. Changes in main are only for debugging and flashing to the devices in order to replicate a real scenario. In mallory, the low-level Bluetooth driver code was changed so as to allow the BISON attack. 
 
-# Stealtooth
+# Link key hijack
 
 ## Theory
 
@@ -53,7 +53,7 @@ sudo bluetoothctl
 
 Once we have obtained the MAC addresses and names, we can start using the Breaktooth tool. We have slightly modified this tool as the original source code does not work (anymore). You can find the updated code in the `breaktooth` directory.
 
-TODO: explain changes made
+TODO (Robin): explain changes made
 
 Switch to the root user using `sudo su` and install depenencies using:
 ```
@@ -98,9 +98,6 @@ paplay /usr/share/sounds/alsa/Front_Center.wav
 ### Stealtooth
 
 As mentioned before, Stealtooth will perform this Breaktooth attack above to hijack a connection to the phone/laptop (A) at the same time as hijacking the connection to the buds (B). Unfortunately we were not able to re-produce this attack, and hence, were not able to create a full MiTM attack, due to TODO. We were able to successfully hijack the connection to the buds and play audio, and even after disconnecting the pi the laptop/phone could no longer connect to the buds again because we over-write the link key.
-
-TODO: explain a bit more?
-
 
 # BISON
 
