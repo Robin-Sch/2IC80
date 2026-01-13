@@ -1,5 +1,0 @@
-boards:
-  - name: intel_wcl_crb
-    vendor: intel
-    socs:
-      - name: wildcat_lake
