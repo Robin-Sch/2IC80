@@ -35,7 +35,11 @@ class KbDevice():
         }
         bus = dbus.SystemBus()
         manager = dbus.Interface(bus.get_object(bus_name="org.bluez", object_path="/org/bluez"), "org.bluez.ProfileManager1")
-        manager.RegisterProfile("/org/bluez/hci0", KbDevice.UUID, opts)
+        try:
+            manager.RegisterProfile("/org/bluez/hci0", KbDevice.UUID, opts)
+        except dbus.exceptions.DBusException:
+            logger.status(msg="UUID already registered")
+            pass
         
         logger.status(msg="Setting up Bluetooth class as HID...")
         os.system("hciconfig hci0 class 0x2c0540")
@@ -54,15 +58,15 @@ class KbDevice():
 
         # コントロールチャンネルの作成と接続
         self.scontrol = socket.socket(socket.AF_BLUETOOTH, 
-                                      socket.SOCK_SEQPACKET, 
-                                      consts.BTPROTO_L2CAP)
+                                     socket.SOCK_SEQPACKET, 
+                                     consts.BTPROTO_L2CAP)
         self.scontrol.connect((self.MAC_ADDRESS, self.P_CTRL))
         logger.status(f"Connected to the control channel of {self.MAC_ADDRESS} at {self.P_CTRL}")
 
         # 割り込みチャンネルの作成と接続
         self.sinterrupt = socket.socket(socket.AF_BLUETOOTH, 
-                                        socket.SOCK_SEQPACKET, 
-                                        consts.BTPROTO_L2CAP)
+                                       socket.SOCK_SEQPACKET, 
+                                       consts.BTPROTO_L2CAP)
         self.sinterrupt.connect((self.MAC_ADDRESS, self.P_INTR))
         logger.status(f"Connected to the interrupt channel of {self.MAC_ADDRESS} at {self.P_INTR}")
         logger.success("You can inject any command you wish. Start a new terminal and try command injection with the make boot/injector command !!")

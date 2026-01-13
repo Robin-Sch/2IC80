@@ -9,14 +9,15 @@ help:   ## Show command list
 .PHONY: install/deps
 install/deps:	## Setup dependency
 	@sh ./cmd/installer/go_installer.sh 
-	@sudo apt update
-	@sudo apt upgrade -y
-	@sudo apt install -y bluetooth libbluetooth-dev
-	@sudo apt install -y bluez bluez-tools bluez-firmware
-	@sudo apt install -y python3 python3-pip python3-dev
-	@sudo apt install -y python3-dbus python3-evdev python3-bluez python3-gi
-	@sudo pip3 install pyudev
-	@sudo pip3 install colorama
+	@apt update
+	@apt upgrade -y
+	@apt install -y bluetooth libbluetooth-dev
+	@apt install -y bluez bluez-tools bluez-firmware
+	@apt install -y python3 python3-pip python3-dev
+	@apt install -y python3-dbus python3-evdev python3-bluez python3-gi
+	@python3 -m venv venv --system-site-packages
+	@./venv/bin/pip3 install pyudev
+	@./venv/bin/pip3 install colorama
 
 .PHONY: setup/device
 setup/device:	## Setup Raspberry Pi env.
@@ -51,9 +52,9 @@ boot/kb/server:	## Boot DBus server for keyboard emulator
 
 .PHONY: boot/injector
 boot/injector:	## Boot DBus client for keyboard emulator
-	@sudo ./cmd/attacker/key_stroke_injector.py
+	@python3 ./cmd/attacker/key_stroke_injector.py
 
 .PHONY: breaktooth
 breaktooth:	## Launching Breaktooth
 	@sudo hciconfig hci0 class 0x002540
-	@sudo ./cmd/attacker/breaktooth.py ${TARGET_MAC_ADDRESS}
+	@python3 ./cmd/attacker/breaktooth.py ${TARGET_MAC_ADDRESS}

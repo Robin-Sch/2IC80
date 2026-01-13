@@ -13,15 +13,15 @@ class BTSocket:
                      type=socket.SOCK_RAW,
                      proto=proto)
         self.bt_addr = bt_addr
-        
+
     def set_security_level(self, level):
         self.sock.setsockopt(consts.SOL_BLUETOOTH,
                              consts.BT_SECURITY,
                              level)
-        
+
     def key_hijacking(self):
         try:
-            psm = 0x0000  # set psm as 0
+            psm = 0x0001  # set psm as 0
             addr = (self.bt_addr, psm)
             status = self.sock.connect_ex(addr)
             logger.status(f"Connection status code: {status}")

