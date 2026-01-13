@@ -12,7 +12,17 @@ There are 2 branches, main and mallory. Changes in main are only for debugging a
 
 Paper that introduces and explains Stealtooth: https://arxiv.org/pdf/2507.00847. Stealtooth builds on top of [Breaktooth](https://eprint.iacr.org/2024/900.pdf), which source code can be downloaded on [breaktooth.github.io](https://breaktooth.github.io/).
 
-Breaktooth exploits a vulnerability in the power savings implementation. Using this exploit, the bluetooth device accept the attacker's link key without requiring any manual user confirmation. This key then which overwrites the real link key silently, allowing to take over the connection.
+Breaktooth exploits a vulnerability in one of the power savings implementations, called Sleep Mode.  Sleep mode achieves a lower power consumption that other power-saving modes such as Sniff, Hold and Park modes, by shutting down most device functionalities, including the Radio Frequency (RF) module, which is either turned off or set to low-power mode. While in this mode, devices may take time to resynchronize with the piconet upon waking up. It is implemented in devices where very low power consumption is needed, like Bluetooth keyboards, headphones and mice.
+
+Let the device X be connected to device Y. Using this exploit, the Bluetooth device accepts the attacker's link key without requiring any manual user confirmation on the Y device. This key then  overwrites the real link key, for some devices silently, allowing to take over the connection.
+
+It is important to note that because of spoofing there is no way for users of the X device to know if the pairing request is sent by the attacker impersonating the Y device or in fact the real device. And that is if the device shows a pairing request popup, which for example the Redmi Buds 6 Pro earbuds do not. This attack also does not require jamming like unlike many other Bluetooth attacks.
+
+Breaktooth implementation that we use can be broken down into these 3 steps: 
+
+The first is the spoofing. To do this the attacker needs to find out the name and MAC address of the device he wants to impersonate. Then change his bluetooth name and address to these and restart the Bluetooth service. 
+The second step is detecting Sleep Mode using 12ping echo being done in a loop, if the status code is zero the looping is terminated and the attacker sends a connection request to the X device. This can be accomplished with a simple Python script and subprocess.run().
+The third step is setting the attacker’s device I/O capability to NoInputNoOutput, setting socket type to SOCK_ROW, protocol to L2CAP, security level to high and destination to the Bluetooth address of the X device to avoid PIN code authentication. Some devices like smartphones or computers pop up a Yes/No confirmation to accept the pairing with the attacker device (spoofed as Y), but as previously stated this is not the case with our Redmi Buds 6 Pro earbuds. This pairing happens without any user interaction and the device accepts the attacker's link key and overwrites the previous key.
 
 TODO: further explanation how it works
 
