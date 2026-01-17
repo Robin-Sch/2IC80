@@ -812,10 +812,8 @@ void ull_sync_iso_done(struct node_rx_event_done *done)
 				force = 1U;
 			}
 		} else {
-			// [Mallory Hack] Disable timeout
-			//timeout_cleanup(sync_iso);
-
-			return;
+			// [Mallory Hack] Reset timeout to prevent disconnect
+			sync_iso->timeout_expire = sync_iso->timeout_reload;
 		}
 	}
 

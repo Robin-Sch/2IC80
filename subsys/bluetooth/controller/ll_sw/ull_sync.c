@@ -1383,9 +1383,8 @@ void ull_sync_done(struct node_rx_event_done *done)
 					force = 1U;
 				}
 			} else {
-				sync_ticker_cleanup(sync, ticker_stop_sync_lost_op_cb);
-
-				return;
+				// [Mallory Hack] Reset timeout to prevent disconnect
+				sync->timeout_expire = sync->timeout_reload;
 			}
 		}
 
@@ -1813,33 +1812,6 @@ static void sync_lost(void *param)
 
 		return;
 	}
-
-	/* Generate Periodic advertising sync lost */
-	rx = (void *)&sync->node_rx_lost;
-	rx->hdr.handle = ull_sync_handle_get(sync);
-	rx->hdr.type = NODE_RX_TYPE_SYNC_LOST;
-	rx->rx_ftr.param = sync;
-
-	/* Enqueue the sync lost towards ULL context */
-	ll_rx_put_sched(rx->hdr.link, rx);
-
-#if defined(CONFIG_BT_CTLR_SYNC_ISO)
-	if (sync->iso.sync_iso) {
-		/* ISO create BIG flag in the periodic advertising context is still set */
-		struct ll_sync_iso_set *sync_iso;
-
-		sync_iso = sync->iso.sync_iso;
-
-		rx = (void *)&sync_iso->node_rx_lost;
-		rx->hdr.handle = sync_iso->big_handle;
-		rx->hdr.type = NODE_RX_TYPE_SYNC_ISO;
-		rx->rx_ftr.param = sync_iso;
-		*((uint8_t *)rx->pdu) = BT_HCI_ERR_CONN_FAIL_TO_ESTAB;
-
-		/* Enqueue the sync iso lost towards ULL context */
-		ll_rx_put_sched(rx->hdr.link, rx);
-	}
-#endif /* CONFIG_BT_CTLR_SYNC_ISO */
 }
 
 #if defined(CONFIG_BT_CTLR_CHECK_SAME_PEER_SYNC)
